@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 from datetime import datetime, timezone, timedelta
+from jose import jwt, JWTError
 
 from app.db.session import get_session
 from app.models.user import User, RefreshToken
@@ -10,8 +11,10 @@ from app.core.security import (
     create_access_token,
     create_refresh_token,
     REFRESH_TOKEN_EXPIRE_DAYS,
+    SECRET_KEY,
+    ALGORITHM,
 )
-from app.schemas.token import Token
+from app.schemas.token import Token, TokenRefresh
 
 router = APIRouter()
 
@@ -37,10 +40,10 @@ def login_access_token(
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
     # Generate a time-limited access token (JWT)
-    access_token = create_access_token(user.email)
+    access_token = create_access_token(user.id)
 
     expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    refresh_token = create_refresh_token(user.email, expires_delta=expire)
+    refresh_token = create_refresh_token(user.id, expires_delta=expire)
 
     db_refresh_token = RefreshToken(
         user_id=user.id, refresh_token=refresh_token, expires_at=expire
@@ -54,3 +57,80 @@ def login_access_token(
     return Token(
         access_token=access_token, token_type="bearer", refresh_token=refresh_token
     )
+
+
+@router.post("/refresh", response_model=Token)
+def refresh_token(refresh_token: TokenRefresh, session: Session = Depends(get_session)):
+    """
+    Exchange a valid refresh token for a new access token and a new refresh token (rotation).
+    """
+
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload = jwt.decode(
+            refresh_token.refresh_token, SECRET_KEY, algorithms=[ALGORITHM]
+        )
+        token_type = payload.get("type")
+
+        if token_type != "refresh":
+            raise credentials_exception
+
+    except:
+        raise credentials_exception
+
+    query = select(RefreshToken).where(
+        RefreshToken.refresh_token == refresh_token.refresh_token,
+        RefreshToken.is_revoked == False,
+        RefreshToken.expires_at > datetime.now(timezone.utc),
+    )
+    result = session.exec(query)
+    token = result.first()
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    token.is_revoked = True
+    session.add(token)
+
+    new_access_token = create_access_token(token.user_id)
+
+    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    new_refresh_token = create_refresh_token(token.user_id, expires_delta=expire)
+
+    db_refresh_token = RefreshToken(
+        user_id=token.user_id, refresh_token=new_refresh_token, expires_at=expire
+    )
+
+    session.add(db_refresh_token)
+    session.commit()
+    session.refresh(db_refresh_token)
+
+    return Token(
+        access_token=new_access_token,
+        token_type="bearer",
+        refresh_token=new_refresh_token,
+    )
+
+
+@router.post("/logout")
+def logout(refresh_token: TokenRefresh, session: Session = Depends(get_session)):
+    query = select(RefreshToken).where(
+        RefreshToken.refresh_token == refresh_token.refresh_token,
+        RefreshToken.is_revoked == False,
+        RefreshToken.expires_at > datetime.now(timezone.utc),
+    )
+    result = session.exec(query)
+    token = result.first()
+
+    if not token:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+    token.is_revoked = True
+
+    session.add(token)
+    session.commit()
