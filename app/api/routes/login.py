@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 from datetime import datetime, timezone, timedelta
 from jose import jwt, JWTError
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
 
 from app.db.session import get_session
 from app.models.user import User, RefreshToken
@@ -15,12 +17,15 @@ from app.core.security import (
     ALGORITHM,
 )
 from app.schemas.token import Token, TokenRefresh
+from app.core.limiter import limiter
 
 router = APIRouter()
 
 
+@limiter.limit("5/minute")
 @router.post("/access-token", response_model=Token)
 def login_access_token(
+    request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
     session: Session = Depends(get_session),
 ):
@@ -122,8 +127,32 @@ def refresh_token(refresh_token: TokenRefresh, session: Session = Depends(get_se
 
 @router.post("/logout")
 def logout(refresh_token: TokenRefresh, session: Session = Depends(get_session)):
+
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid token",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    try:
+        payload = jwt.decode(
+            refresh_token.refresh_token, SECRET_KEY, algorithms=[ALGORITHM]
+        )
+        token_type = payload.get("type")
+        payload_jti = payload.get("jti")
+        user_id = payload.get("sub")
+
+        if token_type != "refresh" or not payload_jti:
+            raise credentials_exception
+
+    except JWTError:
+        raise credentials_exception
+    except Exception:
+        raise credentials_exception
+
     query = select(RefreshToken).where(
-        RefreshToken.refresh_token == refresh_token.refresh_token,
+        RefreshToken.user_id == user_id,
+        RefreshToken.jti == payload_jti,
         RefreshToken.is_revoked == False,
         RefreshToken.expires_at > datetime.now(timezone.utc),
     )
