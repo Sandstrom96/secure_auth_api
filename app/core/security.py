@@ -3,6 +3,9 @@ from datetime import datetime, timedelta, timezone
 from jose import jwt
 from app.core.config import settings
 import uuid
+from sqlmodel import select, Session
+from app.models.user import User
+from app.schemas.error import AuthException
 
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
@@ -58,3 +61,24 @@ def create_refresh_token(subject: str, expires_delta: timedelta | None = None) -
     to_encode = {"exp": expire, "sub": str(subject), "type": "refresh", "jti": jti}
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt, jti
+
+
+def authenticate_user(session: Session, email: str, password: str) -> User:
+    """
+    Authenticates a user by checking their email and password.
+    Returns the user object if successful, otherwise raises an AuthException.
+    """
+
+    # Retrieve the user from the database using the email provided in the form
+    query = select(User).where(User.email == email)
+    user = session.exec(query).first()
+
+    # Verify that the user exists AND that the password is correct.
+    # We use the same error message for both cases to avoid leaking information
+    # about which emails exist in the system.
+    if not user or not verify_password(password, user.hashed_password):
+        raise AuthException(
+            message="Incorrect email or password", error_code="INVALID_CREDENTIALS"
+        )
+
+    return user

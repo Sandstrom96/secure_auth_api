@@ -2,11 +2,13 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import jwt, JWTError
 from sqlmodel import Session, select
+from datetime import datetime, timezone
 
 from app.core.config import settings
-from app.core.security import ALGORITHM
+from app.core.security import ALGORITHM, SECRET_KEY
 from app.db.session import get_session
-from app.models.user import User, UserRole
+from app.models.user import User, UserRole, RefreshToken
+from app.schemas.error import AuthException
 
 # This tells Swagger UI where to send the user's credentials to get a token.
 # The "Authorize" button will use this URL.
@@ -81,3 +83,36 @@ def has_required_role(required_role: UserRole):
         return current_user
 
     return role_checker
+
+
+def get_valid_refresh_token(session: Session, token_string: str) -> RefreshToken:
+    """
+    Validates a refresh token string and retrieves the corresponding record from the database.
+    """
+    try:
+        payload = jwt.decode(token_string, SECRET_KEY, algorithms=[ALGORITHM])
+        jti = payload.get("jti")
+        user_id = payload.get("sub")
+
+        if not jti or not user_id:
+            raise AuthException(message="Invalid token", error_code="INVALID_TOKEN")
+
+        query = select(RefreshToken).where(
+            RefreshToken.jti == jti,
+            RefreshToken.user_id == user_id,
+            RefreshToken.is_revoked == False,
+            RefreshToken.expires_at > datetime.now(timezone.utc),
+        )
+        token_record = session.exec(query).first()
+
+        if not token_record:
+            raise AuthException(
+                message="Token expired or revoked", error_code="TOKEN_ERROR"
+            )
+
+        return token_record
+
+    except JWTError:
+        raise AuthException(
+            message="Could not validate credentials", error_code="INVALID_TOKEN"
+        )
