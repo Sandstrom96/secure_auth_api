@@ -14,3 +14,8 @@ class UserPublic(SQLModel):
     email: str
     role: UserRole
     is_active: bool
+
+
+class UserDeleteResponse(SQLModel):
+    message: str
+    user_id: int

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 from app.db.session import get_session
-from app.schemas.user import UserCreate, UserPublic
+from app.schemas.user import UserCreate, UserPublic, UserDeleteResponse
 from app.models.user import User, UserRole
 from app.core.security import get_password_hash
 from app.api.deps import get_current_user, has_required_role
@@ -40,7 +40,7 @@ def read_user_me(current_user: User = Depends(get_current_user)):
     return current_user
 
 
-@router.delete("/{user_id}")
+@router.delete("/{user_id}", response_model=UserDeleteResponse)
 def delete_user(
     user_id: int,
     session: Session = Depends(get_session),
@@ -57,3 +57,5 @@ def delete_user(
     user.is_active = False
     session.add(user)
     session.commit()
+
+    return UserDeleteResponse(message="User deactivated successfully", user_id=user_id)
