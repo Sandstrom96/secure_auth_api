@@ -2,6 +2,7 @@ from sqlmodel import SQLModel, Field
 from datetime import datetime, timezone
 import enum
 import uuid
+from sqlalchemy import Column, DateTime
 
 
 # Using (str, enum.Enum) makes it a "String Enum".
@@ -21,7 +22,9 @@ class User(SQLModel, table=True):
     hashed_password: str
     role: UserRole = Field(default=UserRole.USER)
     failed_login_attempts: int = Field(default=0)
-    locked_until: datetime | None = Field(default=None)
+    locked_until: datetime | None = Field(
+        default=None, sa_column=Column(DateTime(timezone=True))
+    )
     is_active: bool = Field(default=True)
 
 
@@ -34,6 +37,9 @@ class RefreshToken(SQLModel, table=True):
         index=True,
         nullable=False,
     )
-    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    expires_at: datetime
+    created_at: datetime = Field(
+        default_factory=lambda: datetime.now(timezone.utc),
+        sa_column=Column(DateTime(timezone=True)),
+    )
+    expires_at: datetime = Field(sa_column=Column(DateTime(timezone=True)))
     is_revoked: bool = Field(default=False)
