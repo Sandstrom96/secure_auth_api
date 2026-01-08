@@ -72,3 +72,24 @@ def delete_user(
     session.commit()
 
     return UserDeleteResponse(message="User deactivated successfully", user_id=user_id)
+
+@router.post(
+    "/verify-email",
+    response_model=UserPublic,
+    summary="Verify user email",
+    description="Verifies a user's email by setting is_email_verified to True."
+)
+def verify_email(email:str, session: Session = Depends(get_session)):
+    query = select(User).where(User.email == email)
+    user = session.exec(query).first()
+
+    if not user:
+        raise HTTPException(status_code=404,
+        detail="User not found")
+
+    user.is_email_verified = True
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    return user

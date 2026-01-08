@@ -12,6 +12,7 @@ class UserCreate(SQLModel):
 class UserPublic(SQLModel):
     id: int
     email: str
+    is_email_verified: bool
     role: UserRole
     is_active: bool
 
