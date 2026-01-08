@@ -42,10 +42,12 @@ def login_access_token(
     # Generate a time-limited access token (JWT)
     access_token = create_access_token(user.id)
 
-    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    expire = timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
     refresh_token, jti = create_refresh_token(user.id, expires_delta=expire)
 
-    db_refresh_token = RefreshToken(user_id=user.id, jti=jti, expires_at=expire)
+    expires_at = datetime.now(timezone.utc) + expire
+
+    db_refresh_token = RefreshToken(user_id=user.id, jti=jti, expires_at=expires_at)
 
     session.add(db_refresh_token)
     session.commit()
@@ -76,11 +78,7 @@ def refresh_token(refresh_token: TokenRefresh, session: Session = Depends(get_se
         token_type = payload.get("type")
         payload_jti = payload.get("jti")
 
-        if (
-            token_type != "refresh"
-            or not payload_jti
-            or str(payload.get("sub")) != str(token.user_id)
-        ):
+        if token_type != "refresh" or not payload_jti:
             raise credentials_exception
 
     except JWTError:
@@ -96,7 +94,7 @@ def refresh_token(refresh_token: TokenRefresh, session: Session = Depends(get_se
     result = session.exec(query)
     token = result.first()
 
-    if not token:
+    if not token or str(payload.get("sub")) != str(token.user_id):
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
     token.is_revoked = True
@@ -105,7 +103,9 @@ def refresh_token(refresh_token: TokenRefresh, session: Session = Depends(get_se
     new_access_token = create_access_token(token.user_id)
 
     expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    new_refresh_token, jti = create_refresh_token(token.user_id, expires_delta=expire)
+    new_refresh_token, jti = create_refresh_token(
+        token.user_id, expires_delta=REFRESH_TOKEN_EXPIRE_DAYS
+    )
 
     db_refresh_token = RefreshToken(user_id=token.user_id, jti=jti, expires_at=expire)
 
