@@ -4,6 +4,7 @@ from app.db.session import get_session
 from app.schemas.user import UserCreate, UserPublic
 from app.models.user import User
 from app.core.security import get_password_hash
+from app.api.deps import get_current_user
 
 router = APIRouter()
 
@@ -29,3 +30,11 @@ def create_user(user_in: UserCreate, session: Session = Depends(get_session)):
     session.refresh(user)
 
     return user
+
+
+@router.get("/me", response_model=User)
+def read_user_me(current_user: User = Depends(get_current_user)):
+    """
+    Get current user.
+    """
+    return current_user
