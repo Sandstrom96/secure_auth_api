@@ -68,17 +68,44 @@ def authenticate_user(session: Session, email: str, password: str) -> User:
     Authenticates a user by checking their email and password.
     Returns the user object if successful, otherwise raises an AuthException.
     """
-
     # Retrieve the user from the database using the email provided in the form
     query = select(User).where(User.email == email)
     user = session.exec(query).first()
 
-    # Verify that the user exists AND that the password is correct.
-    # We use the same error message for both cases to avoid leaking information
-    # about which emails exist in the system.
-    if not user or not verify_password(password, user.hashed_password):
+    if not user:
         raise AuthException(
             message="Incorrect email or password", error_code="INVALID_CREDENTIALS"
         )
+
+    if user.is_email_verified is False:
+        raise AuthException(
+            message="Email not verified", error_code="EMAIL_NOT_VERIFIED"
+        )
+    
+    if user.locked_until and user.locked_until > datetime.now(timezone.utc):
+        raise AuthException(
+            message="Account is locked. Please try again later.",
+            error_code="ACCOUNT_LOCKED",
+        )
+
+    # Verify that the user exists AND that the password is correct.
+    # We use the same error message for both cases to avoid leaking information
+    # about which emails exist in the system.
+    if not verify_password(password, user.hashed_password):
+        user.failed_login_attempts += 1
+        if user.failed_login_attempts >= 5:
+            user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=5)
+        session.add(user)
+        session.commit()
+
+        raise AuthException(
+            message="Incorrect email or password", error_code="INVALID_CREDENTIALS"
+        )
+
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    session.add(user)
+    session.commit()
+    session.refresh(user)
 
     return user

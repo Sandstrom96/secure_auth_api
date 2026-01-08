@@ -17,8 +17,11 @@ class User(SQLModel, table=True):
     # default=None allows creating a User object in Python before it has an ID from the DB.
     id: int | None = Field(primary_key=True, default=None)
     email: str = Field(unique=True, index=True)
+    is_email_verified: bool = Field(default=False)
     hashed_password: str
     role: UserRole = Field(default=UserRole.USER)
+    failed_login_attempts: int = Field(default=0)
+    locked_until: datetime | None = Field(default=None)
     is_active: bool = Field(default=True)
 
 

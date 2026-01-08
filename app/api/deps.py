@@ -29,7 +29,7 @@ def get_current_user(
     Dependency that validates the access token and retrieves the current user.
     Used on endpoints that require authentication.
     """
-    print(token)
+    
     # Prepare a standard 401 Unauthorized exception
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
