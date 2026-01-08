@@ -1,6 +1,7 @@
 from sqlmodel import SQLModel, Field
 from datetime import datetime, timezone
 import enum
+import uuid
 
 
 # Using (str, enum.Enum) makes it a "String Enum".
@@ -24,7 +25,12 @@ class User(SQLModel, table=True):
 class RefreshToken(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     user_id: int = Field(foreign_key="user.id", index=True)
-    refresh_token: str = Field(index=True)
+    jti: str = Field(
+        default_factory=lambda: str(uuid.uuid4()),
+        unique=True,
+        index=True,
+        nullable=False,
+    )
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     expires_at: datetime
     is_revoked: bool = Field(default=False)

@@ -43,11 +43,9 @@ def login_access_token(
     access_token = create_access_token(user.id)
 
     expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    refresh_token = create_refresh_token(user.id, expires_delta=expire)
+    refresh_token, jti = create_refresh_token(user.id, expires_delta=expire)
 
-    db_refresh_token = RefreshToken(
-        user_id=user.id, refresh_token=refresh_token, expires_at=expire
-    )
+    db_refresh_token = RefreshToken(user_id=user.id, jti=jti, expires_at=expire)
 
     session.add(db_refresh_token)
     session.commit()
@@ -76,15 +74,22 @@ def refresh_token(refresh_token: TokenRefresh, session: Session = Depends(get_se
             refresh_token.refresh_token, SECRET_KEY, algorithms=[ALGORITHM]
         )
         token_type = payload.get("type")
+        payload_jti = payload.get("jti")
 
-        if token_type != "refresh":
+        if (
+            token_type != "refresh"
+            or not payload_jti
+            or str(payload.get("sub")) != str(token.user_id)
+        ):
             raise credentials_exception
 
-    except:
+    except JWTError:
+        raise credentials_exception
+    except Exception:
         raise credentials_exception
 
     query = select(RefreshToken).where(
-        RefreshToken.refresh_token == refresh_token.refresh_token,
+        RefreshToken.jti == payload_jti,
         RefreshToken.is_revoked == False,
         RefreshToken.expires_at > datetime.now(timezone.utc),
     )
@@ -100,11 +105,9 @@ def refresh_token(refresh_token: TokenRefresh, session: Session = Depends(get_se
     new_access_token = create_access_token(token.user_id)
 
     expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
-    new_refresh_token = create_refresh_token(token.user_id, expires_delta=expire)
+    new_refresh_token, jti = create_refresh_token(token.user_id, expires_delta=expire)
 
-    db_refresh_token = RefreshToken(
-        user_id=token.user_id, refresh_token=new_refresh_token, expires_at=expire
-    )
+    db_refresh_token = RefreshToken(user_id=token.user_id, jti=jti, expires_at=expire)
 
     session.add(db_refresh_token)
     session.commit()
