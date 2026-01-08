@@ -1,4 +1,5 @@
 from sqlmodel import SQLModel, Field
+from datetime import datetime, timezone
 import enum
 
 
@@ -18,3 +19,12 @@ class User(SQLModel, table=True):
     hashed_password: str
     role: UserRole = Field(default=UserRole.USER)
     is_active: bool = Field(default=True)
+
+
+class RefreshToken(SQLModel, table=True):
+    id: int | None = Field(default=None, primary_key=True)
+    user_id: int = Field(foreign_key="user.id", index=True)
+    refresh_token: str = Field(index=True)
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+    expires_at: datetime
+    is_revoked: bool = Field(default=False)

@@ -1,10 +1,16 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
+from datetime import datetime, timezone, timedelta
 
 from app.db.session import get_session
-from app.models.user import User
-from app.core.security import verify_password, create_access_token
+from app.models.user import User, RefreshToken
+from app.core.security import (
+    verify_password,
+    create_access_token,
+    create_refresh_token,
+    REFRESH_TOKEN_EXPIRE_DAYS,
+)
 from app.schemas.token import Token
 
 router = APIRouter()
@@ -31,7 +37,20 @@ def login_access_token(
         raise HTTPException(status_code=401, detail="Incorrect email or password")
 
     # Generate a time-limited access token (JWT)
-    token = create_access_token(user.email)
+    access_token = create_access_token(user.email)
+
+    expire = datetime.now(timezone.utc) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    refresh_token = create_refresh_token(user.email, expires_delta=expire)
+
+    db_refresh_token = RefreshToken(
+        user_id=user.id, refresh_token=refresh_token, expires_at=expire
+    )
+
+    session.add(db_refresh_token)
+    session.commit()
+    session.refresh(db_refresh_token)
 
     # Return the token and type according to the OAuth2 standard
-    return Token(access_token=token, token_type="bearer")
+    return Token(
+        access_token=access_token, token_type="bearer", refresh_token=refresh_token
+    )
