@@ -19,3 +19,8 @@ class UserPublic(SQLModel):
 class UserDeleteResponse(SQLModel):
     message: str
     user_id: int
+
+
+class UserLogoutResponse(SQLModel):
+    message: str
+    user_id: int

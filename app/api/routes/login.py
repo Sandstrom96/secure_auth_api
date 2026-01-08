@@ -1,10 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 from datetime import datetime, timezone, timedelta
 from jose import jwt, JWTError
-from slowapi import Limiter, _rate_limit_exceeded_handler
-from slowapi.util import get_remote_address
+from app.schemas.error import AuthException
 
 from app.db.session import get_session
 from app.models.user import User, RefreshToken
@@ -18,12 +17,18 @@ from app.core.security import (
 )
 from app.schemas.token import Token, TokenRefresh
 from app.core.limiter import limiter
+from app.schemas.user import UserLogoutResponse
 
 router = APIRouter()
 
 
 @limiter.limit("5/minute")
-@router.post("/access-token", response_model=Token)
+@router.post(
+    "/access-token",
+    response_model=Token,
+    summary="Login for access token",
+    description="Authenticates user with email and password, returning both access and refresh tokens.",
+)
 def login_access_token(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),
@@ -42,7 +47,9 @@ def login_access_token(
     # We use the same error message for both cases to avoid leaking information
     # about which emails exist in the system.
     if not user or not verify_password(form_data.password, user.hashed_password):
-        raise HTTPException(status_code=401, detail="Incorrect email or password")
+        raise AuthException(
+            message="Incorrect email or password", error_code="INVALID_CREDENTIALS"
+        )
 
     # Generate a time-limited access token (JWT)
     access_token = create_access_token(user.id)
@@ -70,10 +77,8 @@ def refresh_token(refresh_token: TokenRefresh, session: Session = Depends(get_se
     Exchange a valid refresh token for a new access token and a new refresh token (rotation).
     """
 
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid token",
-        headers={"WWW-Authenticate": "Bearer"},
+    credentials_exception = AuthException(
+        message="Invalid token", error_code="INVALID_TOKEN"
     )
 
     try:
@@ -100,7 +105,7 @@ def refresh_token(refresh_token: TokenRefresh, session: Session = Depends(get_se
     token = result.first()
 
     if not token or str(payload.get("sub")) != str(token.user_id):
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise credentials_exception
 
     token.is_revoked = True
     session.add(token)
@@ -125,13 +130,16 @@ def refresh_token(refresh_token: TokenRefresh, session: Session = Depends(get_se
     )
 
 
-@router.post("/logout")
+@router.post(
+    "/logout",
+    response_model=UserLogoutResponse,
+    summary="Logout user",
+    description="Invalidates the provided refresh token by revoking it in the database.",
+)
 def logout(refresh_token: TokenRefresh, session: Session = Depends(get_session)):
 
-    credentials_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid token",
-        headers={"WWW-Authenticate": "Bearer"},
+    credentials_exception = AuthException(
+        message="Invalid token", error_code="INVALID_TOKEN"
     )
 
     try:
@@ -160,9 +168,11 @@ def logout(refresh_token: TokenRefresh, session: Session = Depends(get_session))
     token = result.first()
 
     if not token:
-        raise HTTPException(status_code=401, detail="Invalid or expired token")
+        raise credentials_exception
 
     token.is_revoked = True
 
     session.add(token)
     session.commit()
+
+    return UserLogoutResponse(message="Successfully logged out", user_id=user_id)
