@@ -7,6 +7,7 @@ from alembic import context
 
 from sqlmodel import SQLModel
 from app.models.user import User
+from app.models.item import Item
 from app.core.config import settings
 
 # this is the Alembic Config object, which provides
